@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>父亲节快乐 - 爱心文字光环</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: "Microsoft YaHei", "微软雅黑", sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #startHint {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 20px;
+            text-align: center;
+            z-index: 100;
+            pointer-events: none;
+        }
+        #startHint span {
+            display: block;
+            font-size: 14px;
+            margin-top: 10px;
+            color: rgba(255, 255, 255, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <div id="startHint">点击屏幕开始 💝<span>建议打开音量</span></div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const startHint = document.getElementById('startHint');
+
+        // 设置画布大小（全屏）
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // ========== 祝福语 ==========
+        const messages = [
+            "老爸节日快乐", "爸爸辛苦了", "愿您健康平安", "我超爱老爸！",
+            "您永远是我的英雄", "少抽烟少喝酒", "天天开心呀", "万事顺意",
+            "要多注意身体", "感谢您的守护", "您的付出我都记得", "父亲节快乐！",
+            "愿您无忧无虑", "愿您被温柔以待", "爸爸永远年轻", "愿您笑口常开",
+            "您辛苦了", "我爱您爸爸", "永远爱您", "您是最棒的"
+        ];
+
+        const colors = ["#ff9966", "#ffcc66", "#ff6666", "#ff9933", "#ffcc99", "#ff6633", "#ff5050", "#ff7744"];
+
+        // ========== 音效（与Python版一致：300Hz低频叮声） ==========
+        let audioCtx = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playDing() {
+            if (!audioCtx) return;
+
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            // 与Python版一致：300Hz
+            oscillator.frequency.setValueAtTime(300, audioCtx.currentTime);
+            oscillator.type = 'sine';
+
+            // 音量包络：指数衰减，与Python版math.exp(-t * 15)对应
+            gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+
+            oscillator.start(audioCtx.currentTime);
+            oscillator.stop(audioCtx.currentTime + 0.15);
+        }
+
+        // ========== 爱心数学公式（与Python版完全一致） ==========
+        function heartPoint(t) {
+            const rad = t * Math.PI / 180;
+            const x = 16 * Math.pow(Math.sin(rad), 3);
+            const y = 13 * Math.cos(rad) - 5 * Math.cos(2 * rad) - 2 * Math.cos(3 * rad) - Math.cos(4 * rad);
+            return { x: x, y: -y };
+        }
+
+        // 计算爱心外侧位置（与Python版outer_position逻辑一致）
+        function outerPosition(t, offsetDist, scale) {
+            const pt = heartPoint(t);
+
+            // 用前后两点计算切线，再得到法线
+            const pt1 = heartPoint(t - 1);
+            const pt2 = heartPoint(t + 1);
+            const dx = pt2.x - pt1.x;
+            const dy = pt2.y - pt1.y;
+
+            let nx = -dy;
+            let ny = dx;
+
+            // 归一化法线
+            const len = Math.sqrt(nx * nx + ny * ny);
+            if (len > 0) {
+                nx /= len;
+                ny /= len;
+            }
+
+            // 确保法线指向外侧（远离中心）
+            const dot = nx * pt.x + ny * pt.y;
+            if (dot < 0) {
+                nx = -nx;
+                ny = -ny;
+            }
+
+            // 向外偏移
+            const outerX = pt.x + nx * offsetDist / scale;
+            const outerY = pt.y + ny * offsetDist / scale;
+
+            return { x: outerX, y: outerY };
+        }
+
+        // ========== 弹出句子类（与Python版PopMessage完全对应） ==========
+        class PopMessage {
+            constructor(text, targetX, targetY, color, centerX, centerY) {
+                this.text = text;
+                this.targetX = targetX;
+                this.targetY = targetY;
+                this.color = color;
+                this.centerX = centerX;
+                this.centerY = centerY;
+
+                // 当前位置，从中心开始
+                this.x = centerX;
+                this.y = centerY;
+
+                // 字号动画参数，与Python版一致
+                this.size = 6;
+                this.maxSize = 20;
+                this.bounceSize = 32;
+                this.phase = 'grow';
+                this.frame = 0;
+                this.settled = false;
+
+                // 创建瞬间播放音效
+                playDing();
+            }
+
+            update() {
+                this.frame++;
+
+                if (this.phase === 'grow') {
+                    this.size += 4;
+                    if (this.size >= this.bounceSize) {
+                        this.size = this.bounceSize;
+                        this.phase = 'overshoot';
+                    }
+                } else if (this.phase === 'overshoot') {
+                    this.size -= 3;
+                    if (this.size <= this.maxSize - 3) {
+                        this.size = this.maxSize - 3;
+                        this.phase = 'bounce';
+                    }
+                } else if (this.phase === 'bounce') {
+                    this.size += 2;
+                    if (this.size >= this.maxSize) {
+                        this.size = this.maxSize;
+                        this.phase = 'settle';
+                    }
+                } else if (this.phase === 'settle') {
+                    this.settled = true;
+                    return false;
+                }
+
+                // 缓动移动到目标位置，与Python版0.12系数一致
+                this.x += (this.targetX - this.x) * 0.12;
+                this.y += (this.targetY - this.y) * 0.12;
+
+                return true;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.font = `bold ${this.size}px "Microsoft YaHei", "微软雅黑", sans-serif`;
+                ctx.fillStyle = this.color;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(this.text, this.x, this.y);
+                ctx.restore();
+            }
+        }
+
+        // ========== 主程序 ==========
+        let popMsgs = [];
+        let popDelay = 0;
+        let currentAngle = 0;
+        const angleStep = 18;       // 与Python版一致
+        let outerOffset = 55;       // 与Python版一致
+        let finished = false;
+        let scale = 22;             // 与Python版一致
+        let centerX, centerY;
+        let started = false;
+
+        // 打乱消息顺序，与Python版random.shuffle对应
+        function shuffleArray(arr) {
+            const newArr = [...arr];
+            for (let i = newArr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+            }
+            return newArr;
+        }
+
+        let shuffledMessages = shuffleArray(messages);
+        let msgCycle = 0;
+
+        // 绘制爱心轮廓（红色小点，与Python版一致）
+        function drawHeartOutline() {
+            ctx.fillStyle = 'red';
+            for (let t = 0; t < 360; t += 2) {
+                const pt = heartPoint(t);
+                const x = centerX + pt.x * scale;
+                const y = centerY + pt.y * scale;
+                ctx.beginPath();
+                ctx.arc(x, y, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 动画循环
+        function animate() {
+            // 清空画布（纯黑背景，与Python版一致）
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // 计算中心和缩放
+            centerX = canvas.width / 2;
+            centerY = canvas.height / 2;
+            // 根据屏幕大小自适应缩放，保持爱心比例
+            const baseScale = Math.min(canvas.width, canvas.height) / 50;
+            scale = baseScale;
+            outerOffset = scale * 2.5; // 保持与scale的比例
+
+            // 绘制爱心轮廓
+            drawHeartOutline();
+
+            if (started && !finished) {
+                popDelay++;
+
+                // 每20帧弹一句，与Python版一致
+                if (popDelay >= 20) {
+                    popDelay = 0;
+
+                    const pos = outerPosition(currentAngle, outerOffset, scale);
+                    const targetX = centerX + pos.x * scale;
+                    const targetY = centerY + pos.y * scale;
+
+                    const msg = shuffledMessages[msgCycle % shuffledMessages.length];
+                    msgCycle++;
+
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    popMsgs.push(new PopMessage(msg, targetX, targetY, color, centerX, centerY));
+
+                    currentAngle += angleStep;
+
+                    // 绕完一圈停止
+                    if (currentAngle >= 360) {
+                        finished = true;
+                    }
+                }
+            }
+
+            // 更新和绘制所有文字
+            for (const msg of popMsgs) {
+                msg.update();
+                msg.draw(ctx);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        // 开始
+        function start() {
+            if (started) return;
+
+            initAudio();
+            started = true;
+            startHint.style.display = 'none';
+
+            // 重置状态
+            popMsgs = [];
+            popDelay = 0;
+            currentAngle = 0;
+            finished = false;
+            msgCycle = 0;
+            shuffledMessages = shuffleArray(messages);
+        }
+
+        // 点击开始
+        document.addEventListener('click', start);
+        document.addEventListener('touchstart', start);
+
+        // 启动动画
+        centerX = canvas.width / 2;
+        centerY = canvas.height / 2;
+        scale = Math.min(canvas.width, canvas.height) / 50;
+        animate();
+    </script>
+</body>
+</html>
